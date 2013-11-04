@@ -5,14 +5,87 @@
     - role: java # https://github.com/vrischmann/ansible-role-java
   vars_files:
     - vars/jenkins.yml
+  handlers:
+    - name: Restart jenkins
+      command: java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 safe-restart
   tasks:
     - name: Add jenkins apt-key
       apt_key: url=http://pkg.jenkins-ci.org/debian/jenkins-ci.org.key state=present
+
     - name: Configure apt repository manually to get around missing source repository problem
       template: src=templates/root/etc/apt/sources.list.d/jenkins.list.j2 dest=/etc/apt/sources.list.d/jenkins.list owner=root group=root mode=0755
+
     - name: Install jenkins
       apt: pkg=jenkins update-cache=yes state=latest
-    - include: tasks/cli.yml
+
+    # If Jenkins is installed or updated, wait for pulling the Jenkins CLI, assuming 10s should be sufficiant
+    - name: 25s delay while starting Jenkins
+      wait_for: port=8080 delay=25
+      tags:
+        - jenkins
+        - cli
+
+    # Create Jenkins CLI destination directory
+    - name: "Create Jenkins CLI destination directory: ${jenkins.dest}"
+      file: path=${jenkins.dest} state=directory
+      tags:
+        - jenkins
+        - cli
+
+    # Get Jenkins CLI from localhost
+    - name: Get Jenkins CLI
+      get_url: url=${jenkins.base_url}/jnlpJars/jenkins-cli.jar dest=${jenkins.cli_dest} mode=0440
+      tags:
+        - jenkins
+        - cli
+
+    # Get latest Jenkins update file
+    - name: Get Jenkins updates
+      get_url: url=http://updates.jenkins-ci.org/update-center.json dest=${jenkins.updates_dest} thirsty=yes mode=0440
+      register: jenkins_updates
+      tags:
+        - jenkins
+        - cli
+
+    # Jenkins Update-center
+    - name: Update-center Jenkins
+      shell: "cat ${jenkins.updates_dest} | sed '1d;$d' | curl -X POST -H 'Accept: application/json' -d @- http://localhost:8080/updateCenter/byId/default/postBack"
+      when: ${jenkins_updates.changed}
+      notify: Restart jenkins
+      tags:
+        - jenkins
+        - cli
+
+    - name: Restart Jenkins
+      command: java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 safe-restart
+
+    - name: 10s delay while starting Jenkins
+      wait_for: port=8080 delay=10
+      tags:
+        - jenkins
+        - cli
+
+    - name: List plugins
+      action: shell java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 list-plugins# | cut -f 1 -d ' '
+      when: jenkins.plugins is defined
+      register: plugins_installed
+
+    # Install/update Jenkins plugins
+    - name: Install/update plugins
+      action: command java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 install-plugin {{ item }}
+      when: plugins_installed.changed and plugins_installed.stdout.find('{{ item }}') == -1
+      with_items: jenkins.plugins
+      notify: Restart jenkins
+
+    - name: List plugins to be updated
+      action: shell java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 list-plugins | grep ')$' | cut -f 1 -d ' ' | sed ':a;N;$!ba;s/\n/ /g'
+      register: plugins_updates
+
+    - name: Update plugins
+      action: command java -jar {{ jenkins.cli_dest }} -s http://localhost:8080 install-plugin {{ plugins_updates.stdout }}
+      when: plugins_updates.stdout != ''
+      notify: Restart jenkins
+
 
 # Configure security:
 #   usermod -G shadow jenkins
