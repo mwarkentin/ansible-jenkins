@@ -1,0 +1,26 @@
+---
+  # If Jenkins is installed or updated, wait for pulling the Jenkins CLI, assuming 10s should be sufficiant
+  - name: 25s delay while starting Jenkins
+    wait_for: port=8080 delay=25
+
+  # Create Jenkins CLI destination directory
+  - name: "Create Jenkins CLI destination directory: ${jenkins.dest}"
+    file: path=${jenkins.dest} state=directory
+
+  # Get Jenkins CLI from localhost
+  - name: Get Jenkins CLI
+    get_url: url=${jenkins.base_url}/jnlpJars/jenkins-cli.jar dest=${jenkins.cli_dest} mode=0440
+
+  # Get latest Jenkins update file
+  - name: Get Jenkins updates
+    get_url: url=http://updates.jenkins-ci.org/update-center.json dest=${jenkins.updates_dest} thirsty=yes mode=0440
+    register: jenkins_updates
+
+  # Jenkins Update-center
+  - name: Update-center Jenkins
+    shell: "cat ${jenkins.updates_dest} | sed '1d;$d' | curl -X POST -H 'Accept: application/json' -d @- http://localhost:8080/updateCenter/byId/default/postBack"
+    when: ${jenkins_updates.changed}
+    notify: Restart jenkins
+
+  - name: 10s delay while starting Jenkins
+    wait_for: port=8080 delay=10

@@ -1,0 +1,21 @@
+---
+  - name: Add jenkins apt-key
+    apt_key: url={{ jenkins.key }} state=present
+
+  - name: Configure apt repository manually to get around missing source repository problem
+    template: src=root/etc/apt/sources.list.d/jenkins.list.j2 dest=/etc/apt/sources.list.d/jenkins.list owner=root group=root mode=0755
+
+  - name: Install jenkins
+    apt: pkg=jenkins update-cache=yes state=latest
+
+  - include: cli.yml tags=jenkins,cli
+
+  - include: plugins.yml tags=jenkins,plugins
+
+# Configure security:
+#   usermod -G shadow jenkins
+#   service jenkins restart
+#   http://jenkins.mwarkentin.com:8080/configureSecurity/
+#   Enable security
+#   Unix user/group database
+#     Advanced: sshd
