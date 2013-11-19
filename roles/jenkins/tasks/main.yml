@@ -5,6 +5,10 @@
   - name: Configure apt repository manually to get around missing source repository problem
     template: src=root/etc/apt/sources.list.d/jenkins.list.j2 dest=/etc/apt/sources.list.d/jenkins.list owner=root group=root mode=0755
 
+  # Fix for https://issues.jenkins-ci.org/browse/JENKINS-20407
+  - name: Create /var/run/jenkins
+    file: path=/var/run/jenkins state=directory
+
   - name: Install jenkins
     apt: pkg=jenkins update-cache=yes state=latest
 
